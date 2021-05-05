@@ -7,6 +7,7 @@ namespace ccxt\async;
 
 use Exception; // a common import
 use \ccxt\ExchangeError;
+use \ccxt\Precise;
 
 class foxbit extends Exchange {
 
@@ -91,21 +92,17 @@ class foxbit extends Exchange {
                 // otherwise we will lose the info if the currency balance has been funded or traded or not
                 if (is_array($balances) && array_key_exists($currencyId, $balances)) {
                     $account = $this->account();
-                    $used = $this->safe_number($balances, $currencyId . '_locked');
-                    if ($used !== null) {
-                        $used *= 1e-8;
-                    }
-                    $total = $this->safe_number($balances, $currencyId);
-                    if ($total !== null) {
-                        $total *= 1e-8;
-                    }
+                    $used = $this->safe_string($balances, $currencyId . '_locked');
+                    $used = Precise::string_div($used, '1e8');
+                    $total = $this->safe_string($balances, $currencyId);
+                    $total = Precise::string_div($total, '1e8');
                     $account['used'] = $used;
                     $account['total'] = $total;
                     $result[$code] = $account;
                 }
             }
         }
-        return $this->parse_balance($result);
+        return $this->parse_balance($result, false);
     }
 
     public function fetch_order_book($symbol, $limit = null, $params = array ()) {
@@ -116,7 +113,7 @@ class foxbit extends Exchange {
             'crypto_currency' => $market['base'],
         );
         $response = yield $this->publicGetCurrencyOrderbook (array_merge($request, $params));
-        return $this->parse_order_book($response);
+        return $this->parse_order_book($response, $symbol);
     }
 
     public function fetch_ticker($symbol, $params = array ()) {
@@ -163,14 +160,11 @@ class foxbit extends Exchange {
             $symbol = $market['symbol'];
         }
         $side = $this->safe_string($trade, 'side');
-        $price = $this->safe_number($trade, 'price');
-        $amount = $this->safe_number($trade, 'amount');
-        $cost = null;
-        if ($price !== null) {
-            if ($amount !== null) {
-                $cost = $amount * $price;
-            }
-        }
+        $priceString = $this->safe_string($trade, 'price');
+        $amountString = $this->safe_string($trade, 'amount');
+        $price = $this->parse_number($priceString);
+        $amount = $this->parse_number($amountString);
+        $cost = $this->parse_number(Precise::string_mul($priceString, $amountString));
         return array(
             'id' => $id,
             'info' => $trade,

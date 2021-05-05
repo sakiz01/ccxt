@@ -146,6 +146,18 @@ class bitstamp(Exchange):
                         'zrx_address/',
                         'gusd_withdrawal/',
                         'gusd_address/',
+                        'aave_withdrawal/',
+                        'aave_address/',
+                        'bat_withdrawal/',
+                        'bat_address/',
+                        'uma_withdrawal/',
+                        'uma_address/',
+                        'snx_withdrawal/',
+                        'snx_address/',
+                        'uni_withdrawal/',
+                        'uni_address/',
+                        'yfi_withdrawal/',
+                        'yfi_address',
                         'transfer-to-main/',
                         'transfer-from-main/',
                         'withdrawal-requests/',
@@ -278,9 +290,13 @@ class bitstamp(Exchange):
             symbol = base + '/' + quote
             symbolId = baseId + '_' + quoteId
             id = self.safe_string(market, 'url_symbol')
+            amountPrecisionString = self.safe_string(market, 'base_decimals')
+            pricePrecisionString = self.safe_string(market, 'counter_decimals')
+            amountLimit = self.parse_precision(amountPrecisionString)
+            priceLimit = self.parse_precision(pricePrecisionString)
             precision = {
-                'amount': self.safe_integer(market, 'base_decimals'),
-                'price': self.safe_integer(market, 'counter_decimals'),
+                'amount': int(amountPrecisionString),
+                'price': int(pricePrecisionString),
             }
             minimumOrder = self.safe_string(market, 'minimum_order')
             parts = minimumOrder.split(' ')
@@ -301,15 +317,15 @@ class bitstamp(Exchange):
                 'precision': precision,
                 'limits': {
                     'amount': {
-                        'min': math.pow(10, -precision['amount']),
+                        'min': self.parse_number(amountLimit),
                         'max': None,
                     },
                     'price': {
-                        'min': math.pow(10, -precision['price']),
+                        'min': self.parse_number(priceLimit),
                         'max': None,
                     },
                     'cost': {
-                        'min': float(cost),
+                        'min': self.parse_number(cost),
                         'max': None,
                     },
                 },
@@ -413,7 +429,7 @@ class bitstamp(Exchange):
         #
         microtimestamp = self.safe_integer(response, 'microtimestamp')
         timestamp = int(microtimestamp / 1000)
-        orderbook = self.parse_order_book(response, timestamp)
+        orderbook = self.parse_order_book(response, symbol, timestamp)
         orderbook['nonce'] = microtimestamp
         return orderbook
 
@@ -728,18 +744,40 @@ class bitstamp(Exchange):
     def fetch_balance(self, params={}):
         self.load_markets()
         balance = self.privatePostBalance(params)
-        result = {'info': balance}
+        #
+        #     {
+        #         "aave_available": "0.00000000",
+        #         "aave_balance": "0.00000000",
+        #         "aave_reserved": "0.00000000",
+        #         "aave_withdrawal_fee": "0.07000000",
+        #         "aavebtc_fee": "0.000",
+        #         "aaveeur_fee": "0.000",
+        #         "aaveusd_fee": "0.000",
+        #         "bat_available": "0.00000000",
+        #         "bat_balance": "0.00000000",
+        #         "bat_reserved": "0.00000000",
+        #         "bat_withdrawal_fee": "5.00000000",
+        #         "batbtc_fee": "0.000",
+        #         "bateur_fee": "0.000",
+        #         "batusd_fee": "0.000",
+        #     }
+        #
+        result = {
+            'info': balance,
+            'timestamp': None,
+            'datetime': None,
+        }
         codes = list(self.currencies.keys())
         for i in range(0, len(codes)):
             code = codes[i]
             currency = self.currency(code)
             currencyId = currency['id']
             account = self.account()
-            account['free'] = self.safe_number(balance, currencyId + '_available')
-            account['used'] = self.safe_number(balance, currencyId + '_reserved')
-            account['total'] = self.safe_number(balance, currencyId + '_balance')
+            account['free'] = self.safe_string(balance, currencyId + '_available')
+            account['used'] = self.safe_string(balance, currencyId + '_reserved')
+            account['total'] = self.safe_string(balance, currencyId + '_balance')
             result[code] = account
-        return self.parse_balance(result)
+        return self.parse_balance(result, False)
 
     def fetch_trading_fee(self, symbol, params={}):
         self.load_markets()
@@ -1129,68 +1167,22 @@ class bitstamp(Exchange):
             side = 'sell' if (side == '1') else 'buy'
         # there is no timestamp from fetchOrder
         timestamp = self.parse8601(self.safe_string(order, 'datetime'))
-        lastTradeTimestamp = None
-        symbol = None
         marketId = self.safe_string_lower(order, 'currency_pair')
-        if marketId is not None:
-            marketId = marketId.replace('/', '')
-            if marketId in self.markets_by_id:
-                market = self.markets_by_id[marketId]
-                symbol = market['symbol']
-        amount = self.safe_number(order, 'amount')
-        filled = 0.0
-        trades = []
-        transactions = self.safe_value(order, 'transactions', [])
-        feeCost = None
-        cost = None
-        numTransactions = len(transactions)
-        if numTransactions > 0:
-            feeCost = 0.0
-            for i in range(0, numTransactions):
-                trade = self.parse_trade(self.extend({
-                    'order_id': id,
-                    'side': side,
-                }, transactions[i]), market)
-                filled = self.sum(filled, trade['amount'])
-                feeCost = self.sum(feeCost, trade['fee']['cost'])
-                if cost is None:
-                    cost = 0.0
-                cost = self.sum(cost, trade['cost'])
-                trades.append(trade)
-            lastTradeTimestamp = trades[numTransactions - 1]['timestamp']
+        symbol = self.safe_symbol(marketId, market, '/')
         status = self.parse_order_status(self.safe_string(order, 'status'))
-        if (status == 'closed') and (amount is None):
-            amount = filled
-        remaining = None
-        if amount is not None:
-            remaining = amount - filled
+        amount = self.safe_number(order, 'amount')
+        transactions = self.safe_value(order, 'transactions', [])
+        trades = self.parse_trades(transactions, market)
+        length = len(trades)
+        if length:
+            symbol = trades[0]['symbol']
         price = self.safe_number(order, 'price')
-        if market is None:
-            market = self.get_market_from_trades(trades)
-        feeCurrency = None
-        if market is not None:
-            if symbol is None:
-                symbol = market['symbol']
-            feeCurrency = market['quote']
-        if cost is None:
-            if price is not None:
-                cost = price * filled
-        elif price is None:
-            if filled > 0:
-                price = cost / filled
-        fee = None
-        if feeCost is not None:
-            if feeCurrency is not None:
-                fee = {
-                    'cost': feeCost,
-                    'currency': feeCurrency,
-                }
-        return {
+        return self.safe_order({
             'id': id,
             'clientOrderId': None,
             'datetime': self.iso8601(timestamp),
             'timestamp': timestamp,
-            'lastTradeTimestamp': lastTradeTimestamp,
+            'lastTradeTimestamp': None,
             'status': status,
             'symbol': symbol,
             'type': None,
@@ -1199,15 +1191,15 @@ class bitstamp(Exchange):
             'side': side,
             'price': price,
             'stopPrice': None,
-            'cost': cost,
+            'cost': None,
             'amount': amount,
-            'filled': filled,
-            'remaining': remaining,
+            'filled': None,
+            'remaining': None,
             'trades': trades,
-            'fee': fee,
+            'fee': None,
             'info': order,
             'average': None,
-        }
+        })
 
     def parse_ledger_entry_type(self, type):
         types = {

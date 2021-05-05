@@ -4,6 +4,7 @@
 
 const bitfinex = require ('./bitfinex.js');
 const { ExchangeError, InvalidAddress, ArgumentsRequired, InsufficientFunds, AuthenticationError, OrderNotFound, InvalidOrder, BadRequest, InvalidNonce, BadSymbol, OnMaintenance, NotSupported } = require ('./base/errors');
+const Precise = require ('./base/Precise');
 
 // ---------------------------------------------------------------------------
 
@@ -374,18 +375,20 @@ module.exports = class bitfinex2 extends bitfinex {
                 'price': this.safeInteger (market, 'price_precision'),
                 'amount': 8, // https://github.com/ccxt/ccxt/issues/7310
             };
+            const minOrderSizeString = this.safeString (market, 'minimum_order_size');
+            const maxOrderSizeString = this.safeString (market, 'maximum_order_size');
             const limits = {
                 'amount': {
-                    'min': this.safeNumber (market, 'minimum_order_size'),
-                    'max': this.safeNumber (market, 'maximum_order_size'),
+                    'min': this.parseNumber (minOrderSizeString),
+                    'max': this.parseNumber (maxOrderSizeString),
                 },
                 'price': {
-                    'min': Math.pow (10, -precision['price']),
-                    'max': Math.pow (10, precision['price']),
+                    'min': this.parseNumber ('1e-8'),
+                    'max': undefined,
                 },
             };
             limits['cost'] = {
-                'min': limits['amount']['min'] * limits['price']['min'],
+                'min': undefined,
                 'max': undefined,
             };
             const margin = this.safeValue (market, 'margin');
@@ -542,14 +545,6 @@ module.exports = class bitfinex2 extends bitfinex {
                         'min': 1 / Math.pow (10, precision),
                         'max': undefined,
                     },
-                    'price': {
-                        'min': 1 / Math.pow (10, precision),
-                        'max': undefined,
-                    },
-                    'cost': {
-                        'min': undefined,
-                        'max': undefined,
-                    },
                     'withdraw': {
                         'min': fee,
                         'max': undefined,
@@ -586,12 +581,12 @@ module.exports = class bitfinex2 extends bitfinex {
             if ((accountType === type) && derivativeCondition) {
                 const code = this.safeCurrencyCode (currencyId);
                 const account = this.account ();
-                account['total'] = this.safeNumber (balance, 2);
-                account['free'] = this.safeNumber (balance, 4);
+                account['total'] = this.safeString (balance, 2);
+                account['free'] = this.safeString (balance, 4);
                 result[code] = account;
             }
         }
-        return this.parseBalance (result);
+        return this.parseBalance (result, false);
     }
 
     async transfer (code, amount, fromAccount, toAccount, params = {}) {
@@ -693,6 +688,7 @@ module.exports = class bitfinex2 extends bitfinex {
         const orderbook = await this.publicGetBookSymbolPrecision (fullRequest);
         const timestamp = this.milliseconds ();
         const result = {
+            'symbol': symbol,
             'bids': [],
             'asks': [],
             'timestamp': timestamp,
@@ -720,26 +716,26 @@ module.exports = class bitfinex2 extends bitfinex {
             symbol = market['symbol'];
         }
         const length = ticker.length;
-        const last = ticker[length - 4];
+        const last = this.safeNumber (ticker, length - 4);
         return {
             'symbol': symbol,
             'timestamp': timestamp,
             'datetime': this.iso8601 (timestamp),
-            'high': ticker[length - 2],
-            'low': ticker[length - 1],
-            'bid': ticker[length - 10],
+            'high': this.safeNumber (ticker, length - 2),
+            'low': this.safeNumber (ticker, length - 1),
+            'bid': this.safeNumber (ticker, length - 10),
             'bidVolume': undefined,
-            'ask': ticker[length - 8],
+            'ask': this.safeNumber (ticker, length - 8),
             'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
             'close': last,
             'last': last,
             'previousClose': undefined,
-            'change': ticker[length - 6],
-            'percentage': ticker[length - 5] * 100,
+            'change': this.safeNumber (ticker, length - 6),
+            'percentage': this.safeNumber (ticker, length - 5) * 100,
             'average': undefined,
-            'baseVolume': ticker[length - 3],
+            'baseVolume': this.safeNumber (ticker, length - 3),
             'quoteVolume': undefined,
             'info': ticker,
         };
@@ -830,11 +826,19 @@ module.exports = class bitfinex2 extends bitfinex {
         const isPrivate = (tradeLength > 5);
         const id = this.safeString (trade, 0);
         const amountIndex = isPrivate ? 4 : 2;
-        let amount = this.safeNumber (trade, amountIndex);
-        let cost = undefined;
-        const priceIndex = isPrivate ? 5 : 3;
-        const price = this.safeNumber (trade, priceIndex);
         let side = undefined;
+        let amountString = this.safeString (trade, amountIndex);
+        const priceIndex = isPrivate ? 5 : 3;
+        const priceString = this.safeString (trade, priceIndex);
+        if (amountString[0] === '-') {
+            side = 'sell';
+            amountString = amountString.slice (1);
+        } else {
+            side = 'buy';
+        }
+        const amount = this.parseNumber (amountString);
+        const price = this.parseNumber (priceString);
+        const cost = this.parseNumber (Precise.stringMul (priceString, amountString));
         let orderId = undefined;
         let takerOrMaker = undefined;
         let type = undefined;
@@ -853,40 +857,21 @@ module.exports = class bitfinex2 extends bitfinex {
             orderId = this.safeString (trade, 3);
             const maker = this.safeInteger (trade, 8);
             takerOrMaker = (maker === 1) ? 'maker' : 'taker';
-            let feeCost = this.safeNumber (trade, 9);
+            let feeCostString = this.safeString (trade, 9);
+            feeCostString = Precise.stringNeg (feeCostString);
+            const feeCost = this.parseNumber (feeCostString);
             const feeCurrencyId = this.safeString (trade, 10);
             const feeCurrency = this.safeCurrencyCode (feeCurrencyId);
-            if (feeCost !== undefined) {
-                feeCost = -feeCost;
-                if (symbol in this.markets) {
-                    feeCost = this.feeToPrecision (symbol, feeCost);
-                } else {
-                    const currencyId = 'f' + feeCurrency;
-                    if (currencyId in this.currencies_by_id) {
-                        const currency = this.currencies_by_id[currencyId];
-                        feeCost = this.currencyToPrecision (currency['code'], feeCost);
-                    }
-                }
-                fee = {
-                    'cost': parseFloat (feeCost),
-                    'currency': feeCurrency,
-                };
-            }
+            fee = {
+                'cost': feeCost,
+                'currency': feeCurrency,
+            };
             const orderType = trade[6];
             type = this.safeString (this.options['exchangeTypes'], orderType);
         }
         if (symbol === undefined) {
             if (market !== undefined) {
                 symbol = market['symbol'];
-            }
-        }
-        if (amount !== undefined) {
-            side = (amount < 0) ? 'sell' : 'buy';
-            amount = Math.abs (amount);
-            if (cost === undefined) {
-                if (price !== undefined) {
-                    cost = amount * price;
-                }
             }
         }
         return {
@@ -997,9 +982,9 @@ module.exports = class bitfinex2 extends bitfinex {
         // const timestamp = this.safeTimestamp (order, 5);
         const timestamp = this.safeInteger (order, 5);
         const remaining = Math.abs (this.safeNumber (order, 6));
-        const amount = Math.abs (this.safeNumber (order, 7));
-        const filled = amount - remaining;
-        const side = (order[7] < 0) ? 'sell' : 'buy';
+        const signedAmount = this.safeNumber (order, 7);
+        const amount = Math.abs (signedAmount);
+        const side = (signedAmount < 0) ? 'sell' : 'buy';
         const orderType = this.safeString (order, 8);
         const type = this.safeString (this.safeValue (this.options, 'exchangeTypes'), orderType);
         let status = undefined;
@@ -1010,9 +995,8 @@ module.exports = class bitfinex2 extends bitfinex {
         }
         const price = this.safeNumber (order, 16);
         const average = this.safeNumber (order, 17);
-        const cost = price * filled;
         const clientOrderId = this.safeString (order, 2);
-        return {
+        return this.safeOrder ({
             'info': order,
             'id': id,
             'clientOrderId': clientOrderId,
@@ -1027,14 +1011,14 @@ module.exports = class bitfinex2 extends bitfinex {
             'price': price,
             'stopPrice': undefined,
             'amount': amount,
-            'cost': cost,
+            'cost': undefined,
             'average': average,
-            'filled': filled,
+            'filled': undefined,
             'remaining': remaining,
             'status': status,
             'fee': undefined,
             'trades': undefined,
-        };
+        });
     }
 
     async createOrder (symbol, type, side, amount, price = undefined, params = {}) {

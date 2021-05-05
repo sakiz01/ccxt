@@ -5,6 +5,7 @@
 
 from ccxt.base.exchange import Exchange
 from ccxt.base.errors import ExchangeError
+from ccxt.base.precise import Precise
 
 
 class foxbit(Exchange):
@@ -89,16 +90,14 @@ class foxbit(Exchange):
                 # otherwise we will lose the info if the currency balance has been funded or traded or not
                 if currencyId in balances:
                     account = self.account()
-                    used = self.safe_number(balances, currencyId + '_locked')
-                    if used is not None:
-                        used *= 1e-8
-                    total = self.safe_number(balances, currencyId)
-                    if total is not None:
-                        total *= 1e-8
+                    used = self.safe_string(balances, currencyId + '_locked')
+                    used = Precise.string_div(used, '1e8')
+                    total = self.safe_string(balances, currencyId)
+                    total = Precise.string_div(total, '1e8')
                     account['used'] = used
                     account['total'] = total
                     result[code] = account
-        return self.parse_balance(result)
+        return self.parse_balance(result, False)
 
     def fetch_order_book(self, symbol, limit=None, params={}):
         self.load_markets()
@@ -108,7 +107,7 @@ class foxbit(Exchange):
             'crypto_currency': market['base'],
         }
         response = self.publicGetCurrencyOrderbook(self.extend(request, params))
-        return self.parse_order_book(response)
+        return self.parse_order_book(response, symbol)
 
     def fetch_ticker(self, symbol, params={}):
         self.load_markets()
@@ -152,12 +151,11 @@ class foxbit(Exchange):
         if market is not None:
             symbol = market['symbol']
         side = self.safe_string(trade, 'side')
-        price = self.safe_number(trade, 'price')
-        amount = self.safe_number(trade, 'amount')
-        cost = None
-        if price is not None:
-            if amount is not None:
-                cost = amount * price
+        priceString = self.safe_string(trade, 'price')
+        amountString = self.safe_string(trade, 'amount')
+        price = self.parse_number(priceString)
+        amount = self.parse_number(amountString)
+        cost = self.parse_number(Precise.string_mul(priceString, amountString))
         return {
             'id': id,
             'info': trade,

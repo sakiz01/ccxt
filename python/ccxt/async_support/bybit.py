@@ -15,6 +15,7 @@ from ccxt.base.errors import OrderNotFound
 from ccxt.base.errors import RateLimitExceeded
 from ccxt.base.errors import InvalidNonce
 from ccxt.base.decimal_to_precision import TICK_SIZE
+from ccxt.base.precise import Precise
 
 
 class bybit(Exchange):
@@ -325,8 +326,11 @@ class bybit(Exchange):
                     'LTC/USDT': 'linear',
                     'XTZ/USDT': 'linear',
                     'LINK/USDT': 'linear',
+                    'ADA/USDT': 'linear',
+                    'DOT/USDT': 'linear',
+                    'UNI/USDT': 'linear',
                 },
-                'defaultType': 'linear',  # may also be inverse or inverseFuture
+                'defaultType': 'linear',  # may also be inverse
                 'code': 'BTC',
                 'cancelAllOrders': {
                     # 'method': 'v2PrivatePostOrderCancelAll',  # v2PrivatePostStopOrderCancelAll
@@ -430,8 +434,10 @@ class bybit(Exchange):
             inverse = not linear
             symbol = base + '/' + quote
             baseQuote = base + quote
+            type = 'swap'
             if baseQuote != id:
                 symbol = id
+                type = 'future'
             lotSizeFilter = self.safe_value(market, 'lot_size_filter', {})
             priceFilter = self.safe_value(market, 'price_filter', {})
             precision = {
@@ -442,6 +448,10 @@ class bybit(Exchange):
             active = None
             if status is not None:
                 active = (status == 'Trading')
+            spot = (type == 'spot')
+            swap = (type == 'swap')
+            future = (type == 'future')
+            option = (type == 'option')
             result.append({
                 'id': id,
                 'symbol': symbol,
@@ -451,10 +461,11 @@ class bybit(Exchange):
                 'precision': precision,
                 'taker': self.safe_number(market, 'taker_fee'),
                 'maker': self.safe_number(market, 'maker_fee'),
-                'type': 'future',
-                'spot': False,
-                'future': True,
-                'option': False,
+                'type': type,
+                'spot': spot,
+                'swap': swap,
+                'future': future,
+                'option': option,
                 'linear': linear,
                 'inverse': inverse,
                 'limits': {
@@ -799,13 +810,13 @@ class bybit(Exchange):
         marketId = self.safe_string(trade, 'symbol')
         market = self.safe_market(marketId, market)
         symbol = market['symbol']
-        amount = self.safe_number_2(trade, 'qty', 'exec_qty')
+        amountString = self.safe_string_2(trade, 'qty', 'exec_qty')
+        priceString = self.safe_string_2(trade, 'exec_price', 'price')
         cost = self.safe_number(trade, 'exec_value')
-        price = self.safe_number_2(trade, 'exec_price', 'price')
+        amount = self.parse_number(amountString)
+        price = self.parse_number(priceString)
         if cost is None:
-            if amount is not None:
-                if price is not None:
-                    cost = amount * price
+            cost = self.parse_number(Precise.string_mul(priceString, amountString))
         timestamp = self.parse8601(self.safe_string(trade, 'time'))
         if timestamp is None:
             timestamp = self.safe_integer(trade, 'trade_time_ms')
@@ -872,7 +883,7 @@ class bybit(Exchange):
         result = self.safe_value(response, 'result', {})
         return self.parse_trades(result, market, since, limit)
 
-    def parse_order_book(self, orderbook, timestamp=None, bidsKey='Buy', asksKey='Sell', priceKey='price', amountKey='size'):
+    def parse_order_book(self, orderbook, symbol, timestamp=None, bidsKey='Buy', asksKey='Sell', priceKey='price', amountKey='size'):
         bids = []
         asks = []
         for i in range(0, len(orderbook)):
@@ -885,6 +896,7 @@ class bybit(Exchange):
             else:
                 raise ExchangeError(self.id + ' parseOrderBook encountered an unrecognized bidask format: ' + self.json(bidask))
         return {
+            'symbol': symbol,
             'bids': self.sort_by(bids, 0, True),
             'asks': self.sort_by(asks, 0),
             'timestamp': timestamp,
@@ -918,7 +930,7 @@ class bybit(Exchange):
         #
         result = self.safe_value(response, 'result', [])
         timestamp = self.safe_timestamp(response, 'time_now')
-        return self.parse_order_book(result, timestamp, 'Buy', 'Sell', 'price', 'size')
+        return self.parse_order_book(result, symbol, timestamp, 'Buy', 'Sell', 'price', 'size')
 
     async def fetch_balance(self, params={}):
         await self.load_markets()
@@ -970,11 +982,11 @@ class bybit(Exchange):
             balance = balances[currencyId]
             code = self.safe_currency_code(currencyId)
             account = self.account()
-            account['free'] = self.safe_number(balance, 'available_balance')
-            account['used'] = self.safe_number(balance, 'used_margin')
-            account['total'] = self.safe_number(balance, 'equity')
+            account['free'] = self.safe_string(balance, 'available_balance')
+            account['used'] = self.safe_string(balance, 'used_margin')
+            account['total'] = self.safe_string(balance, 'equity')
             result[code] = account
-        return self.parse_balance(result)
+        return self.parse_balance(result, False)
 
     def parse_order_status(self, status):
         statuses = {
@@ -1098,8 +1110,8 @@ class bybit(Exchange):
         #
         marketId = self.safe_string(order, 'symbol')
         market = self.safe_market(marketId, market)
-        symbol = None
-        base = None
+        symbol = market['symbol']
+        feeCurrency = None
         timestamp = self.parse8601(self.safe_string(order, 'created_at'))
         id = self.safe_string_2(order, 'order_id', 'stop_order_id')
         type = self.safe_string_lower(order, 'order_type')
@@ -1111,24 +1123,16 @@ class bybit(Exchange):
         cost = self.safe_number(order, 'cum_exec_value')
         filled = self.safe_number(order, 'cum_exec_qty')
         remaining = self.safe_number(order, 'leaves_qty')
+        marketTypes = self.safe_value(self.options, 'marketTypes', {})
+        marketType = self.safe_string(marketTypes, symbol)
         if market is not None:
-            symbol = market['symbol']
-            base = market['base']
+            if marketType == 'linear':
+                feeCurrency = market['quote']
+            else:
+                feeCurrency = market['base']
         lastTradeTimestamp = self.safe_timestamp(order, 'last_exec_time')
         if lastTradeTimestamp == 0:
             lastTradeTimestamp = None
-        if (filled is None) and (amount is not None) and (remaining is not None):
-            filled = amount - remaining
-        if filled is not None:
-            if (remaining is None) and (amount is not None):
-                remaining = amount - filled
-            if cost is None:
-                if price is not None:
-                    cost = price * filled
-            if (type == 'market') and (cost is not None) and (cost > 0):
-                price = None
-                if average is None:
-                    average = filled / cost
         status = self.parse_order_status(self.safe_string_2(order, 'order_status', 'stop_order_status'))
         side = self.safe_string_lower(order, 'side')
         feeCost = self.safe_number(order, 'cum_exec_fee')
@@ -1137,7 +1141,7 @@ class bybit(Exchange):
             feeCost = abs(feeCost)
             fee = {
                 'cost': feeCost,
-                'currency': base,
+                'currency': feeCurrency,
             }
         clientOrderId = self.safe_string(order, 'order_link_id')
         if (clientOrderId is not None) and (len(clientOrderId) < 1):
@@ -1145,7 +1149,7 @@ class bybit(Exchange):
         timeInForce = self.parse_time_in_force(self.safe_string(order, 'time_in_force'))
         stopPrice = self.safe_number(order, 'stop_px')
         postOnly = (timeInForce == 'PO')
-        return {
+        return self.safe_order({
             'info': order,
             'id': id,
             'clientOrderId': clientOrderId,
@@ -1167,7 +1171,7 @@ class bybit(Exchange):
             'status': status,
             'fee': fee,
             'trades': None,
-        }
+        })
 
     async def fetch_order(self, id, symbol=None, params={}):
         if symbol is None:
@@ -1859,7 +1863,7 @@ class bybit(Exchange):
         #
         result = self.safe_value(response, 'result', {})
         data = self.safe_value(result, 'data', [])
-        return self.parse_transactions(data, currency, since, limit)
+        return self.parse_transactions(data, currency, since, limit, {'type': 'deposit'})
 
     async def fetch_withdrawals(self, code=None, since=None, limit=None, params={}):
         await self.load_markets()
@@ -1912,7 +1916,7 @@ class bybit(Exchange):
         #
         result = self.safe_value(response, 'result', {})
         data = self.safe_value(result, 'data', [])
-        return self.parse_transactions(data, currency, since, limit, params)
+        return self.parse_transactions(data, currency, since, limit, {'type': 'withdrawal'})
 
     def parse_transaction_status(self, status):
         statuses = {
@@ -1966,6 +1970,7 @@ class bybit(Exchange):
         status = self.parse_transaction_status(self.safe_string(transaction, 'status'))
         address = self.safe_string(transaction, 'address')
         feeCost = self.safe_number(transaction, 'fee')
+        type = self.safe_string_lower(transaction, 'type')
         fee = None
         if feeCost is not None:
             fee = {
@@ -1984,7 +1989,7 @@ class bybit(Exchange):
             'tag': None,
             'tagTo': None,
             'tagFrom': None,
-            'type': 'withdrawal',
+            'type': type,
             'amount': self.safe_number(transaction, 'amount'),
             'currency': code,
             'status': status,
@@ -2105,6 +2110,33 @@ class bybit(Exchange):
         }
         return self.safe_string(types, type, type)
 
+    async def fetch_positions(self, symbols=None, params={}):
+        await self.load_markets()
+        request = {}
+        if isinstance(symbols, list):
+            length = len(symbols)
+            if length != 1:
+                raise ArgumentsRequired(self.id + ' fetchPositions takes exactly one symbol')
+            request['symbol'] = self.market_id(symbols[0])
+        defaultType = self.safe_string(self.options, 'defaultType', 'linear')
+        type = self.safe_string(params, 'type', defaultType)
+        params = self.omit(params, 'type')
+        response = None
+        if type == 'linear':
+            response = await self.privateLinearGetPositionList(self.extend(request, params))
+        elif type == 'inverse':
+            response = await self.v2PrivateGetPositionList(self.extend(request, params))
+        elif type == 'inverseFuture':
+            response = await self.futuresPrivateGetPositionList(self.extend(request, params))
+        # {
+        #   ret_code: 0,
+        #   ret_msg: 'OK',
+        #   ext_code: '',
+        #   ext_info: '',
+        #   result: [] or {} depending on the request
+        # }
+        return self.safe_value(response, 'result')
+
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         url = self.implode_params(self.urls['api'], {'hostname': self.hostname})
         type = self.safe_string(api, 0)
@@ -2161,30 +2193,3 @@ class bybit(Exchange):
             self.throw_exactly_matched_exception(self.exceptions['exact'], errorCode, feedback)
             self.throw_broadly_matched_exception(self.exceptions['broad'], body, feedback)
             raise ExchangeError(feedback)  # unknown message
-
-    async def fetch_positions(self, symbols=None, params={}):
-        await self.load_markets()
-        request = {}
-        if isinstance(symbols, list):
-            length = len(symbols)
-            if length != 1:
-                raise ArgumentsRequired(self.id + ' fetchPositions takes exactly one symbol')
-            request['symbol'] = self.market_id(symbols[0])
-        defaultType = self.safe_string(self.options, 'defaultType', 'linear')
-        type = self.safe_string(params, 'type', defaultType)
-        params = self.omit(params, 'type')
-        response = None
-        if type == 'linear':
-            response = await self.privateLinearGetPositionList(self.extend(request, params))
-        elif type == 'inverse':
-            response = await self.v2PrivateGetPositionList(self.extend(request, params))
-        elif type == 'inverseFuture':
-            response = await self.futuresPrivateGetPositionList(self.extend(request, params))
-        # {
-        #   ret_code: 0,
-        #   ret_msg: 'OK',
-        #   ext_code: '',
-        #   ext_info: '',
-        #   result: [] or {} depending on the request
-        # }
-        return self.safe_value(response, 'result')

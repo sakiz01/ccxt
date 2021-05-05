@@ -244,7 +244,7 @@ class bleutrade(Exchange):
         orderbook = self.safe_value(response, 'result')
         if not orderbook:
             raise ExchangeError(self.id + ' no orderbook data in ' + self.json(response))
-        return self.parse_order_book(orderbook, None, 'buy', 'sell', 'Rate', 'Quantity')
+        return self.parse_order_book(orderbook, symbol, None, 'buy', 'sell', 'Rate', 'Quantity')
 
     async def fetch_ticker(self, symbol, params={}):
         await self.load_markets()
@@ -396,10 +396,10 @@ class bleutrade(Exchange):
             currencyId = self.safe_string(item, 'Asset')
             code = self.safe_currency_code(currencyId)
             account = self.account()
-            account['free'] = self.safe_number(item, 'Available')
-            account['total'] = self.safe_number(item, 'Balance')
+            account['free'] = self.safe_string(item, 'Available')
+            account['total'] = self.safe_string(item, 'Balance')
             result[code] = account
-        return self.parse_balance(result)
+        return self.parse_balance(result, False)
 
     async def fetch_closed_orders(self, symbol=None, since=None, limit=None, params={}):
         await self.load_markets()

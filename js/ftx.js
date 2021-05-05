@@ -5,6 +5,7 @@
 const Exchange = require ('./base/Exchange');
 const { TICK_SIZE } = require ('./base/functions/number');
 const { ExchangeError, InvalidOrder, BadRequest, InsufficientFunds, OrderNotFound, AuthenticationError, RateLimitExceeded, ExchangeNotAvailable, CancelPending, ArgumentsRequired, PermissionDenied } = require ('./base/errors');
+const Precise = require ('./base/Precise');
 
 //  ---------------------------------------------------------------------------
 
@@ -226,6 +227,7 @@ module.exports = class ftx extends Exchange {
                     'Not enough balances': InsufficientFunds, // {"error":"Not enough balances","success":false}
                     'InvalidPrice': InvalidOrder, // {"error":"Invalid price","success":false}
                     'Size too small': InvalidOrder, // {"error":"Size too small","success":false}
+                    'Size too large': InvalidOrder, // {"error":"Size too large","success":false}
                     'Missing parameter price': InvalidOrder, // {"error":"Missing parameter price","success":false}
                     'Order not found': OrderNotFound, // {"error":"Order not found","success":false}
                     'Order already closed': InvalidOrder, // {"error":"Order already closed","success":false}
@@ -299,8 +301,6 @@ module.exports = class ftx extends Exchange {
                 'limits': {
                     'withdraw': { 'min': undefined, 'max': undefined },
                     'amount': { 'min': undefined, 'max': undefined },
-                    'price': { 'min': undefined, 'max': undefined },
-                    'cost': { 'min': undefined, 'max': undefined },
                 },
             };
         }
@@ -568,7 +568,7 @@ module.exports = class ftx extends Exchange {
         //     }
         //
         const result = this.safeValue (response, 'result', {});
-        return this.parseOrderBook (result);
+        return this.parseOrderBook (result, symbol);
     }
 
     parseOHLCV (ohlcv, market = undefined) {
@@ -766,16 +766,15 @@ module.exports = class ftx extends Exchange {
             }
         }
         const timestamp = this.parse8601 (this.safeString (trade, 'time'));
-        const price = this.safeNumber (trade, 'price');
-        const amount = this.safeNumber (trade, 'size');
+        const priceString = this.safeString (trade, 'price');
+        const amountString = this.safeString (trade, 'size');
+        const price = this.parseNumber (priceString);
+        const amount = this.parseNumber (amountString);
+        const cost = this.parseNumber (Precise.stringMul (priceString, amountString));
         if ((symbol === undefined) && (market !== undefined)) {
             symbol = market['symbol'];
         }
         const side = this.safeString (trade, 'side');
-        let cost = undefined;
-        if (price !== undefined && amount !== undefined) {
-            cost = price * amount;
-        }
         let fee = undefined;
         const feeCost = this.safeNumber (trade, 'fee');
         if (feeCost !== undefined) {
@@ -918,11 +917,11 @@ module.exports = class ftx extends Exchange {
             const balance = balances[i];
             const code = this.safeCurrencyCode (this.safeString (balance, 'coin'));
             const account = this.account ();
-            account['free'] = this.safeNumber (balance, 'free');
-            account['total'] = this.safeNumber (balance, 'total');
+            account['free'] = this.safeString (balance, 'free');
+            account['total'] = this.safeString (balance, 'total');
             result[code] = account;
         }
-        return this.parseBalance (result);
+        return this.parseBalance (result, false);
     }
 
     parseOrderStatus (status) {
@@ -1672,6 +1671,19 @@ module.exports = class ftx extends Exchange {
         //
         // fetchDeposits
         //
+        //     airdrop
+        //
+        //     {
+        //         "id": 9147072,
+        //         "coin": "SRM_LOCKED",
+        //         "size": 3.12,
+        //         "time": "2021-04-27T23:59:03.565983+00:00",
+        //         "notes": "SRM Airdrop for FTT holdings",
+        //         "status": "complete"
+        //     }
+        //
+        //     regular deposits
+        //
         //     {
         //         "coin": "TUSD",
         //         "confirmations": 64,
@@ -1723,7 +1735,7 @@ module.exports = class ftx extends Exchange {
         if (address === undefined) {
             // parse address from internal transfer
             const notes = this.safeString (transaction, 'notes');
-            if (notes !== undefined) {
+            if ((notes !== undefined) && (notes.indexOf ('Transfer to') >= 0)) {
                 address = notes.slice (12);
             }
         }

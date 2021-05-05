@@ -22,7 +22,7 @@
 
 # ----------------------------------------------------------------------------
 
-__version__ = '1.45.55'
+__version__ = '1.49.52'
 
 # ----------------------------------------------------------------------------
 
@@ -88,7 +88,6 @@ from ccxt.bitget import bitget                              # noqa: F401
 from ccxt.bithumb import bithumb                            # noqa: F401
 from ccxt.bitkk import bitkk                                # noqa: F401
 from ccxt.bitmart import bitmart                            # noqa: F401
-from ccxt.bitmax import bitmax                              # noqa: F401
 from ccxt.bitmex import bitmex                              # noqa: F401
 from ccxt.bitpanda import bitpanda                          # noqa: F401
 from ccxt.bitso import bitso                                # noqa: F401
@@ -98,7 +97,6 @@ from ccxt.bittrex import bittrex                            # noqa: F401
 from ccxt.bitvavo import bitvavo                            # noqa: F401
 from ccxt.bitz import bitz                                  # noqa: F401
 from ccxt.bl3p import bl3p                                  # noqa: F401
-from ccxt.bleutrade import bleutrade                        # noqa: F401
 from ccxt.braziliex import braziliex                        # noqa: F401
 from ccxt.btcalpha import btcalpha                          # noqa: F401
 from ccxt.btcbox import btcbox                              # noqa: F401
@@ -133,10 +131,7 @@ from ccxt.equos import equos                                # noqa: F401
 from ccxt.eterbase import eterbase                          # noqa: F401
 from ccxt.exmo import exmo                                  # noqa: F401
 from ccxt.exx import exx                                    # noqa: F401
-from ccxt.fcoin import fcoin                                # noqa: F401
-from ccxt.fcoinjp import fcoinjp                            # noqa: F401
 from ccxt.flowbtc import flowbtc                            # noqa: F401
-from ccxt.foxbit import foxbit                              # noqa: F401
 from ccxt.ftx import ftx                                    # noqa: F401
 from ccxt.gateio import gateio                              # noqa: F401
 from ccxt.gemini import gemini                              # noqa: F401
@@ -175,13 +170,11 @@ from ccxt.rightbtc import rightbtc                          # noqa: F401
 from ccxt.ripio import ripio                                # noqa: F401
 from ccxt.southxchange import southxchange                  # noqa: F401
 from ccxt.stex import stex                                  # noqa: F401
-from ccxt.surbitcoin import surbitcoin                      # noqa: F401
 from ccxt.therock import therock                            # noqa: F401
 from ccxt.tidebit import tidebit                            # noqa: F401
 from ccxt.tidex import tidex                                # noqa: F401
 from ccxt.timex import timex                                # noqa: F401
 from ccxt.upbit import upbit                                # noqa: F401
-from ccxt.vbtc import vbtc                                  # noqa: F401
 from ccxt.vcc import vcc                                    # noqa: F401
 from ccxt.wavesexchange import wavesexchange                # noqa: F401
 from ccxt.whitebit import whitebit                          # noqa: F401
@@ -212,7 +205,6 @@ exchanges = [
     'bithumb',
     'bitkk',
     'bitmart',
-    'bitmax',
     'bitmex',
     'bitpanda',
     'bitso',
@@ -222,7 +214,6 @@ exchanges = [
     'bitvavo',
     'bitz',
     'bl3p',
-    'bleutrade',
     'braziliex',
     'btcalpha',
     'btcbox',
@@ -257,10 +248,7 @@ exchanges = [
     'eterbase',
     'exmo',
     'exx',
-    'fcoin',
-    'fcoinjp',
     'flowbtc',
-    'foxbit',
     'ftx',
     'gateio',
     'gemini',
@@ -299,13 +287,11 @@ exchanges = [
     'ripio',
     'southxchange',
     'stex',
-    'surbitcoin',
     'therock',
     'tidebit',
     'tidex',
     'timex',
     'upbit',
-    'vbtc',
     'vcc',
     'wavesexchange',
     'whitebit',

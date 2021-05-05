@@ -9,6 +9,7 @@ use Exception; // a common import
 use \ccxt\ExchangeError;
 use \ccxt\ArgumentsRequired;
 use \ccxt\InvalidOrder;
+use \ccxt\Precise;
 
 class fcoin extends Exchange {
 
@@ -323,12 +324,12 @@ class fcoin extends Exchange {
             $currencyId = $this->safe_string($balance, 'currency');
             $code = $this->safe_currency_code($currencyId);
             $account = $this->account();
-            $account['free'] = $this->safe_number($balance, 'available');
-            $account['total'] = $this->safe_number($balance, 'balance');
-            $account['used'] = $this->safe_number($balance, 'frozen');
+            $account['free'] = $this->safe_string($balance, 'available');
+            $account['total'] = $this->safe_string($balance, 'balance');
+            $account['used'] = $this->safe_string($balance, 'frozen');
             $result[$code] = $account;
         }
-        return $this->parse_balance($result);
+        return $this->parse_balance($result, false);
     }
 
     public function parse_bids_asks($orders, $priceKey = 0, $amountKey = 1) {
@@ -365,7 +366,7 @@ class fcoin extends Exchange {
         );
         $response = yield $this->marketGetDepthLevelSymbol (array_merge($request, $params));
         $orderbook = $this->safe_value($response, 'data');
-        return $this->parse_order_book($orderbook, $orderbook['ts'], 'bids', 'asks', 0, 1);
+        return $this->parse_order_book($orderbook, $symbol, $orderbook['ts'], 'bids', 'asks', 0, 1);
     }
 
     public function fetch_ticker($symbol, $params = array ()) {
@@ -423,14 +424,11 @@ class fcoin extends Exchange {
         $timestamp = $this->safe_integer($trade, 'ts');
         $side = $this->safe_string_lower($trade, 'side');
         $id = $this->safe_string($trade, 'id');
-        $price = $this->safe_number($trade, 'price');
-        $amount = $this->safe_number($trade, 'amount');
-        $cost = null;
-        if ($price !== null) {
-            if ($amount !== null) {
-                $cost = $amount * $price;
-            }
-        }
+        $priceString = $this->safe_string($trade, 'price');
+        $amountString = $this->safe_string($trade, 'amount');
+        $price = $this->parse_number($priceString);
+        $amount = $this->parse_number($amountString);
+        $cost = $this->parse_number(Precise::string_mul($priceString, $amountString));
         $fee = null;
         return array(
             'id' => $id,

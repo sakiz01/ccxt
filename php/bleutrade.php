@@ -247,7 +247,7 @@ class bleutrade extends Exchange {
         if (!$orderbook) {
             throw new ExchangeError($this->id . ' no $orderbook data in ' . $this->json($response));
         }
-        return $this->parse_order_book($orderbook, null, 'buy', 'sell', 'Rate', 'Quantity');
+        return $this->parse_order_book($orderbook, $symbol, null, 'buy', 'sell', 'Rate', 'Quantity');
     }
 
     public function fetch_ticker($symbol, $params = array ()) {
@@ -415,11 +415,11 @@ class bleutrade extends Exchange {
             $currencyId = $this->safe_string($item, 'Asset');
             $code = $this->safe_currency_code($currencyId);
             $account = $this->account();
-            $account['free'] = $this->safe_number($item, 'Available');
-            $account['total'] = $this->safe_number($item, 'Balance');
+            $account['free'] = $this->safe_string($item, 'Available');
+            $account['total'] = $this->safe_string($item, 'Balance');
             $result[$code] = $account;
         }
-        return $this->parse_balance($result);
+        return $this->parse_balance($result, false);
     }
 
     public function fetch_closed_orders($symbol = null, $since = null, $limit = null, $params = array ()) {

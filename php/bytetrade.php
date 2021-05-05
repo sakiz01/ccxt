@@ -190,12 +190,12 @@ class bytetrade extends Exchange {
             $limits = $this->safe_value($currency, 'limits');
             $deposit = $this->safe_value($limits, 'deposit');
             $amountPrecision = $this->safe_integer($currency, 'basePrecision');
-            $maxDeposit = $this->safe_float($deposit, 'max');
+            $maxDeposit = $this->safe_number($deposit, 'max');
             if ($maxDeposit === -1.0) {
                 $maxDeposit = null;
             }
             $withdraw = $this->safe_value($limits, 'withdraw');
-            $maxWithdraw = $this->safe_float($withdraw, 'max');
+            $maxWithdraw = $this->safe_number($withdraw, 'max');
             if ($maxWithdraw === -1.0) {
                 $maxWithdraw = null;
             }
@@ -208,14 +208,12 @@ class bytetrade extends Exchange {
                 'fee' => null,
                 'limits' => array(
                     'amount' => array( 'min' => null, 'max' => null ),
-                    'price' => array( 'min' => null, 'max' => null ),
-                    'cost' => array( 'min' => null, 'max' => null ),
                     'deposit' => array(
-                        'min' => $this->safe_float($deposit, 'min'),
+                        'min' => $this->safe_number($deposit, 'min'),
                         'max' => $maxDeposit,
                     ),
                     'withdraw' => array(
-                        'min' => $this->safe_float($withdraw, 'min'),
+                        'min' => $this->safe_number($withdraw, 'min'),
                         'max' => $maxWithdraw,
                     ),
                 ),
@@ -269,12 +267,12 @@ class bytetrade extends Exchange {
                 'normalSymbol' => $normalSymbol,
                 'limits' => array(
                     'amount' => array(
-                        'min' => $this->safe_float($amount, 'min'),
-                        'max' => $this->safe_float($amount, 'max'),
+                        'min' => $this->safe_number($amount, 'min'),
+                        'max' => $this->safe_number($amount, 'max'),
                     ),
                     'price' => array(
-                        'min' => $this->safe_float($price, 'min'),
-                        'max' => $this->safe_float($price, 'max'),
+                        'min' => $this->safe_number($price, 'min'),
+                        'max' => $this->safe_number($price, 'max'),
                     ),
                     'cost' => array(
                         'min' => null,
@@ -302,11 +300,11 @@ class bytetrade extends Exchange {
             $currencyId = $this->safe_string($balance, 'code');
             $code = $this->safe_currency_code($currencyId, null);
             $account = $this->account();
-            $account['free'] = $this->safe_float($balance, 'free');
-            $account['used'] = $this->safe_float($balance, 'used');
+            $account['free'] = $this->safe_string($balance, 'free');
+            $account['used'] = $this->safe_string($balance, 'used');
             $result[$code] = $account;
         }
-        return $this->parse_balance($result);
+        return $this->parse_balance($result, false);
     }
 
     public function fetch_order_book($symbol, $limit = null, $params = array ()) {
@@ -320,7 +318,7 @@ class bytetrade extends Exchange {
         }
         $response = $this->marketGetDepth (array_merge($request, $params));
         $timestamp = $this->safe_value($response, 'timestamp');
-        $orderbook = $this->parse_order_book($response, $timestamp);
+        $orderbook = $this->parse_order_book($response, $symbol, $timestamp);
         return $orderbook;
     }
 
@@ -367,22 +365,22 @@ class bytetrade extends Exchange {
             'symbol' => $symbol,
             'timestamp' => $timestamp,
             'datetime' => $this->iso8601($timestamp),
-            'high' => $this->safe_float($ticker, 'high'),
-            'low' => $this->safe_float($ticker, 'low'),
+            'high' => $this->safe_number($ticker, 'high'),
+            'low' => $this->safe_number($ticker, 'low'),
             'bid' => null,
             'bidVolume' => null,
             'ask' => null,
             'askVolume' => null,
-            'vwap' => $this->safe_float($ticker, 'weightedAvgPrice'),
-            'open' => $this->safe_float($ticker, 'open'),
-            'close' => $this->safe_float($ticker, 'close'),
-            'last' => $this->safe_float($ticker, 'last'),
+            'vwap' => $this->safe_number($ticker, 'weightedAvgPrice'),
+            'open' => $this->safe_number($ticker, 'open'),
+            'close' => $this->safe_number($ticker, 'close'),
+            'last' => $this->safe_number($ticker, 'last'),
             'previousClose' => null, // previous day close
-            'change' => $this->safe_float($ticker, 'change'),
-            'percentage' => $this->safe_float($ticker, 'percentage'),
+            'change' => $this->safe_number($ticker, 'change'),
+            'percentage' => $this->safe_number($ticker, 'percentage'),
             'average' => null,
-            'baseVolume' => $this->safe_float($ticker, 'baseVolume'),
-            'quoteVolume' => $this->safe_float($ticker, 'quoteVolume'),
+            'baseVolume' => $this->safe_number($ticker, 'baseVolume'),
+            'quoteVolume' => $this->safe_number($ticker, 'quoteVolume'),
             'info' => $ticker,
         );
     }
@@ -450,11 +448,11 @@ class bytetrade extends Exchange {
         //
         return array(
             $this->safe_integer($ohlcv, 0),
-            $this->safe_float($ohlcv, 1),
-            $this->safe_float($ohlcv, 2),
-            $this->safe_float($ohlcv, 3),
-            $this->safe_float($ohlcv, 4),
-            $this->safe_float($ohlcv, 5),
+            $this->safe_number($ohlcv, 1),
+            $this->safe_number($ohlcv, 2),
+            $this->safe_number($ohlcv, 3),
+            $this->safe_number($ohlcv, 4),
+            $this->safe_number($ohlcv, 5),
         );
     }
 
@@ -484,16 +482,15 @@ class bytetrade extends Exchange {
 
     public function parse_trade($trade, $market = null) {
         $timestamp = $this->safe_integer($trade, 'timestamp');
-        $price = $this->safe_float($trade, 'price');
-        $amount = $this->safe_float($trade, 'amount');
-        $cost = $this->safe_float($trade, 'cost');
+        $price = $this->safe_number($trade, 'price');
+        $amount = $this->safe_number($trade, 'amount');
+        $cost = $this->safe_number($trade, 'cost');
         $id = $this->safe_string($trade, 'id');
         $type = $this->safe_string($trade, 'type');
         $takerOrMaker = $this->safe_string($trade, 'takerOrMaker');
         $side = $this->safe_string($trade, 'side');
         $datetime = $this->iso8601($timestamp); // $this->safe_string($trade, 'datetime');
         $order = $this->safe_string($trade, 'order');
-        $fee = $this->safe_value($trade, 'fee');
         $symbol = null;
         if ($market === null) {
             $marketId = $this->safe_string($trade, 'symbol');
@@ -502,6 +499,16 @@ class bytetrade extends Exchange {
         if ($market !== null) {
             $symbol = $market['symbol'];
         }
+        $feeData = $this->safe_value($trade, 'fee');
+        $feeCost = $this->safe_number($feeData, 'cost');
+        $feeRate = $this->safe_number($feeData, 'rate');
+        $feeCode = $this->safe_string($feeData, 'code');
+        $feeCurrency = $this->safe_currency_code($feeCode);
+        $fee = array(
+            'currency' => $feeCurrency,
+            'cost' => $feeCost,
+            'rate' => $feeRate,
+        );
         return array(
             'info' => $trade,
             'timestamp' => $timestamp,
@@ -556,16 +563,25 @@ class bytetrade extends Exchange {
         $timestamp = $this->safe_integer($order, 'timestamp');
         $datetime = $this->safe_string($order, 'datetime');
         $lastTradeTimestamp = $this->safe_integer($order, 'lastTradeTimestamp');
-        $price = $this->safe_float($order, 'price');
-        $amount = $this->safe_float($order, 'amount');
-        $filled = $this->safe_float($order, 'filled');
-        $remaining = $this->safe_float($order, 'remaining');
-        $cost = $this->safe_float($order, 'cost');
-        $average = $this->safe_float($order, 'average');
+        $price = $this->safe_number($order, 'price');
+        $amount = $this->safe_number($order, 'amount');
+        $filled = $this->safe_number($order, 'filled');
+        $remaining = $this->safe_number($order, 'remaining');
+        $cost = $this->safe_number($order, 'cost');
+        $average = $this->safe_number($order, 'average');
         $id = $this->safe_string($order, 'id');
         $type = $this->safe_string($order, 'type');
         $side = $this->safe_string($order, 'side');
-        $fee = $this->safe_value($order, 'fee');
+        $feeData = $this->safe_value($order, 'fee');
+        $feeCost = $this->safe_number($feeData, 'cost');
+        $feeRate = $this->safe_number($feeData, 'rate');
+        $feeCode = $this->safe_string($feeData, 'code');
+        $feeCurrency = $this->safe_currency_code($feeCode);
+        $fee = array(
+            'currency' => $feeCurrency,
+            'cost' => $feeCost,
+            'rate' => $feeRate,
+        );
         return array(
             'info' => $order,
             'id' => $id,
@@ -810,6 +826,9 @@ class bytetrade extends Exchange {
         if ($limit !== null) {
             $request['limit'] = $limit;
         }
+        if ($since !== null) {
+            $request['since'] = $since;
+        }
         $response = $this->publicGetOrdersOpen (array_merge($request, $params));
         return $this->parse_orders($response, $market, $since, $limit);
     }
@@ -830,6 +849,9 @@ class bytetrade extends Exchange {
         if ($limit !== null) {
             $request['limit'] = $limit;
         }
+        if ($since !== null) {
+            $request['since'] = $since;
+        }
         $response = $this->publicGetOrdersClosed (array_merge($request, $params));
         return $this->parse_orders($response, $market, $since, $limit);
     }
@@ -849,6 +871,9 @@ class bytetrade extends Exchange {
         }
         if ($limit !== null) {
             $request['limit'] = $limit;
+        }
+        if ($since !== null) {
+            $request['since'] = $since;
         }
         $response = $this->publicGetOrdersAll (array_merge($request, $params));
         return $this->parse_orders($response, $market, $since, $limit);
@@ -1077,6 +1102,9 @@ class bytetrade extends Exchange {
         if ($limit !== null) {
             $request['limit'] = $limit;
         }
+        if ($since !== null) {
+            $request['since'] = $since;
+        }
         $response = $this->publicGetOrdersTrades (array_merge($request, $params));
         return $this->parse_trades($response, $market, $since, $limit);
     }
@@ -1162,9 +1190,9 @@ class bytetrade extends Exchange {
         $datetime = $this->safe_string($transaction, 'datetime');
         $type = $this->safe_string($transaction, 'type');
         $status = $this->parse_transaction_status($this->safe_string($transaction, 'status'));
-        $amount = $this->safe_float($transaction, 'amount');
+        $amount = $this->safe_number($transaction, 'amount');
         $feeInfo = $this->safe_value($transaction, 'fee');
-        $feeCost = $this->safe_float($feeInfo, 'cost');
+        $feeCost = $this->safe_number($feeInfo, 'cost');
         $feeCurrencyId = $this->safe_string($feeInfo, 'code');
         $feeCode = $this->safe_currency_code($feeCurrencyId, $currency);
         $fee = array(

@@ -16,6 +16,7 @@ from ccxt.base.errors import NotSupported
 from ccxt.base.errors import RateLimitExceeded
 from ccxt.base.errors import ExchangeNotAvailable
 from ccxt.base.errors import InvalidNonce
+from ccxt.base.precise import Precise
 
 
 class fcoin(Exchange):
@@ -324,11 +325,11 @@ class fcoin(Exchange):
             currencyId = self.safe_string(balance, 'currency')
             code = self.safe_currency_code(currencyId)
             account = self.account()
-            account['free'] = self.safe_number(balance, 'available')
-            account['total'] = self.safe_number(balance, 'balance')
-            account['used'] = self.safe_number(balance, 'frozen')
+            account['free'] = self.safe_string(balance, 'available')
+            account['total'] = self.safe_string(balance, 'balance')
+            account['used'] = self.safe_string(balance, 'frozen')
             result[code] = account
-        return self.parse_balance(result)
+        return self.parse_balance(result, False)
 
     def parse_bids_asks(self, orders, priceKey=0, amountKey=1):
         result = []
@@ -360,7 +361,7 @@ class fcoin(Exchange):
         }
         response = self.marketGetDepthLevelSymbol(self.extend(request, params))
         orderbook = self.safe_value(response, 'data')
-        return self.parse_order_book(orderbook, orderbook['ts'], 'bids', 'asks', 0, 1)
+        return self.parse_order_book(orderbook, symbol, orderbook['ts'], 'bids', 'asks', 0, 1)
 
     def fetch_ticker(self, symbol, params={}):
         self.load_markets()
@@ -412,12 +413,11 @@ class fcoin(Exchange):
         timestamp = self.safe_integer(trade, 'ts')
         side = self.safe_string_lower(trade, 'side')
         id = self.safe_string(trade, 'id')
-        price = self.safe_number(trade, 'price')
-        amount = self.safe_number(trade, 'amount')
-        cost = None
-        if price is not None:
-            if amount is not None:
-                cost = amount * price
+        priceString = self.safe_string(trade, 'price')
+        amountString = self.safe_string(trade, 'amount')
+        price = self.parse_number(priceString)
+        amount = self.parse_number(amountString)
+        cost = self.parse_number(Precise.string_mul(priceString, amountString))
         fee = None
         return {
             'id': id,
